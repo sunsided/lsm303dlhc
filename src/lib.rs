@@ -16,11 +16,24 @@
 // Enables the `doc_cfg` feature when the `docsrs` configuration attribute is defined.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(all(feature = "embedded_hal-0_2", feature = "embedded_hal-1_0"))]
+compile_error!(
+    "Features `embedded_hal-0_2` and `embedded_hal-1_0` cannot be enabled at the same time."
+);
+
+#[cfg(not(any(feature = "embedded_hal-0_2", feature = "embedded_hal-1_0")))]
+compile_error!("Either feature `embedded_hal-0_2` or `embedded_hal-1_0` must be enabled.");
+
 #[cfg(feature = "accelerometer")]
 extern crate accelerometer;
 extern crate cast;
-extern crate embedded_hal as hal;
 extern crate generic_array;
+
+#[cfg(feature = "embedded_hal-0_2")]
+extern crate hal_v0_2 as hal;
+
+#[cfg(feature = "embedded_hal-1_0")]
+extern crate hal_v1_0 as hal;
 
 use core::fmt::Debug;
 

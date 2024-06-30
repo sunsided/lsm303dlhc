@@ -10,14 +10,25 @@ repository = "https://github.com/sunsided/lsm303dlhc"
 version = "0.2.0"
 
 [features]
-default = ["accelerometer"]
+default = ["accelerometer", "embedded_hal-1_0"]
 accelerometer = ["dep:accelerometer"]
+embedded_hal-0_2 = ["dep:hal_v0_2"]
+embedded_hal-1_0 = ["dep:hal_v1_0"]
 
 [dependencies]
 accelerometer = { version = "0.12.0", optional = true }
 cast = { version = "0.3.0", default-features = false }
-embedded-hal = "0.2.7"
 generic-array = "1.0.0"
+
+[dependencies.hal_v0_2]
+package = "embedded-hal"
+version = "0.2.7"
+optional = true
+
+[dependencies.hal_v1_0]
+package = "embedded-hal"
+version = "1.0.0"
+optional = true
 
 [package.metadata.docs.rs]
 all-features = true
