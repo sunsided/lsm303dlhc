@@ -20,11 +20,11 @@
 extern crate accelerometer;
 extern crate bitfield_struct;
 extern crate cast;
+#[cfg(feature = "defmt")]
+extern crate defmt;
 extern crate embedded_hal as hal;
 extern crate generic_array;
 extern crate lsm303dlhc_registers;
-
-use core::fmt::Debug;
 
 use cast::u16;
 use generic_array::typenum::consts::*;
@@ -373,8 +373,7 @@ where
 }
 
 /// XYZ triple
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct I16x3 {
     /// X component
     pub x: i16,
@@ -382,4 +381,40 @@ pub struct I16x3 {
     pub y: i16,
     /// Z component
     pub z: i16,
+}
+
+#[cfg(feature = "defmt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "defmt")))]
+impl defmt::Format for I16x3 {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "({}, {}, {})", self.x, self.y, self.z);
+    }
+}
+
+impl core::fmt::Debug for I16x3 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use core::fmt::Write;
+        f.write_char('(')?;
+        core::fmt::Debug::fmt(&self.x, f)?;
+        f.write_str(", ")?;
+        core::fmt::Debug::fmt(&self.y, f)?;
+        f.write_str(", ")?;
+        core::fmt::Debug::fmt(&self.z, f)?;
+        f.write_char(')')
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn i16x3_debug() {
+        let value = I16x3 {
+            x: 10,
+            y: 20,
+            z: 30,
+        };
+        test_format::assert_debug_fmt!(value, "(10, 20, 30)");
+    }
 }
