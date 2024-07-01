@@ -3,7 +3,7 @@
 > A platform-agnostic driver to interface with the LSM303DLHC (accelerometer + compass)
 
 Do note that the sensor is discontinued and that documentation is scarce. Owners of an STM32F3 Discovery
-board may stil find this crate useful, among others.
+board may still find this crate useful, among others.
 
 ## What works
 
