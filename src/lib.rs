@@ -22,6 +22,7 @@ extern crate bitfield_struct;
 extern crate cast;
 extern crate embedded_hal as hal;
 extern crate generic_array;
+extern crate lsm303dlhc_registers;
 
 use core::fmt::Debug;
 
@@ -29,16 +30,13 @@ use cast::u16;
 use generic_array::typenum::consts::*;
 use generic_array::{ArrayLength, GenericArray};
 use hal::blocking::i2c::{Write, WriteRead};
-use registers::{
-    accel, mag, ControlRegister1A, ControlRegister2A, ControlRegister3A, ControlRegister4A,
-    ControlRegister5A, ControlRegister6A, CraRegisterM, IRARegisterM, IRBRegisterM, IRCRegisterM,
-    ModeRegisterM, Register, WritableRegister,
-};
+use lsm303dlhc_registers::accel::{self, *};
+use lsm303dlhc_registers::mag::{self, *};
+use lsm303dlhc_registers::{Register, WritableRegister};
 
 #[cfg(feature = "accelerometer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "accelerometer")))]
 mod accelerometer_impl;
-pub mod registers;
 pub mod wrapper;
 
 /// LSM303DLHC driver.
@@ -113,7 +111,7 @@ where
     /// Accelerometer measurements
     pub fn accel(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
-            self.read_accel_registers(accel::AccelerometerRegister::OUT_X_L_A)?;
+            self.read_accel_registers(accel::RegisterAddress::OUT_X_L_A)?;
 
         Ok(I16x3 {
             // Registers come in X, Y, Z order of low, then high.
@@ -131,7 +129,7 @@ where
     /// Magnetometer measurements
     pub fn mag(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
-            self.read_mag_registers(mag::MagnetometerRegister::OUT_X_H_M)?;
+            self.read_mag_registers(mag::RegisterAddress::OUT_X_H_M)?;
 
         Ok(I16x3 {
             // Note that the register is different from the accelerometer.
@@ -156,16 +154,16 @@ where
     /// The temperature reading is relative to an unspecified reference temperature,
     /// most likely 25 °C.
     pub fn temp(&mut self) -> Result<i16, E> {
-        let temp_out_l = self.read_mag_register(mag::MagnetometerRegister::TEMP_OUT_L_M)?;
-        let temp_out_h = self.read_mag_register(mag::MagnetometerRegister::TEMP_OUT_H_M)?;
+        let temp_out_l = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_L_M)?;
+        let temp_out_h = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_H_M)?;
 
         Ok(((u16(temp_out_l) + (u16(temp_out_h) << 8)) as i16) >> 4)
     }
 
     /// Changes the `sensitivity` of the accelerometer
     pub fn set_accel_sensitivity(&mut self, sensitivity: Sensitivity) -> Result<(), E> {
-        self.modify_accel_register_unchecked(accel::AccelerometerRegister::CTRL_REG4_A, |r| {
-            r & !(0b11 << 4) | (sensitivity.value() << 4)
+        self.modify_accel_register_unchecked(accel::RegisterAddress::CTRL_REG4_A, |r| {
+            r & !(0b11 << 4) | (sensitivity.into_bits() << 4)
         })
     }
 
@@ -175,8 +173,11 @@ where
         R: Register,
     {
         let mut buffer = [0_u8];
-        self.i2c
-            .write_read(R::DEV_ADDRESS, &[R::REG_ADDRESS], &mut buffer)?;
+        self.i2c.write_read(
+            *R::DEFAULT_DEVICE_ADDRESS,
+            &[*R::REGISTER_ADDRESS],
+            &mut buffer,
+        )?;
         Ok(R::from_bits(buffer[0]))
     }
 
@@ -187,7 +188,8 @@ where
         R: WritableRegister,
     {
         let byte = register.borrow().to_bits();
-        self.i2c.write(R::DEV_ADDRESS, &[R::REG_ADDRESS, byte])?;
+        self.i2c
+            .write(*R::DEFAULT_DEVICE_ADDRESS, &[*R::REGISTER_ADDRESS, byte])?;
         Ok(())
     }
 
@@ -203,7 +205,7 @@ where
     }
 
     /// Reads an accelerometer register.
-    pub fn read_accel_register(&mut self, reg: accel::AccelerometerRegister) -> Result<u8, E> {
+    pub fn read_accel_register(&mut self, reg: accel::RegisterAddress) -> Result<u8, E> {
         self.read_accel_registers::<U1>(reg).map(|b| b[0])
     }
 
@@ -214,7 +216,7 @@ where
     /// for consecutive reads. This is described in section 5.1.2 of the reference manual.
     fn read_accel_registers<N>(
         &mut self,
-        reg: accel::AccelerometerRegister,
+        reg: accel::RegisterAddress,
     ) -> Result<GenericArray<u8, N>, E>
     where
         N: ArrayLength,
@@ -228,7 +230,7 @@ where
 
             const MULTI: u8 = 1 << 7;
             self.i2c
-                .write_read(accel::ADDRESS, &[reg.addr() | MULTI], buffer)?;
+                .write_read(accel::DEFAULT_DEVICE_ADDRESS, &[reg.addr() | MULTI], buffer)?;
         }
 
         // SAFETY: The write_read function has filled the entire buffer.
@@ -243,7 +245,7 @@ where
     /// This function does not validate any inputs.
     pub unsafe fn write_accel_register(
         &mut self,
-        reg: accel::AccelerometerRegister,
+        reg: accel::RegisterAddress,
         byte: u8,
     ) -> Result<(), E> {
         self.write_accel_register_unchecked(reg, byte)
@@ -251,10 +253,11 @@ where
 
     fn write_accel_register_unchecked(
         &mut self,
-        reg: accel::AccelerometerRegister,
+        reg: accel::RegisterAddress,
         byte: u8,
     ) -> Result<(), E> {
-        self.i2c.write(accel::ADDRESS, &[reg.addr(), byte])
+        self.i2c
+            .write(accel::DEFAULT_DEVICE_ADDRESS, &[reg.addr(), byte])
     }
 
     /// Modifies an accelerometer register.
@@ -263,7 +266,7 @@ where
     /// This function does not validate any inputs.
     pub unsafe fn modify_accel_register<F>(
         &mut self,
-        reg: accel::AccelerometerRegister,
+        reg: accel::RegisterAddress,
         f: F,
     ) -> Result<(), E>
     where
@@ -274,7 +277,7 @@ where
 
     fn modify_accel_register_unchecked<F>(
         &mut self,
-        reg: accel::AccelerometerRegister,
+        reg: accel::RegisterAddress,
         f: F,
     ) -> Result<(), E>
     where
@@ -286,7 +289,7 @@ where
     }
 
     /// Reads a magnetometer register.
-    pub fn read_mag_register(&mut self, reg: mag::MagnetometerRegister) -> Result<u8, E> {
+    pub fn read_mag_register(&mut self, reg: mag::RegisterAddress) -> Result<u8, E> {
         let buffer: GenericArray<u8, U1> = self.read_mag_registers(reg)?;
         Ok(buffer[0])
     }
@@ -302,10 +305,7 @@ where
     /// * Any other address gets incremented.
     ///
     /// Unlike the accelerometer, it does not require an MSB high bit for auto-increments.
-    fn read_mag_registers<N>(
-        &mut self,
-        reg: mag::MagnetometerRegister,
-    ) -> Result<GenericArray<u8, N>, E>
+    fn read_mag_registers<N>(&mut self, reg: mag::RegisterAddress) -> Result<GenericArray<u8, N>, E>
     where
         N: ArrayLength,
     {
@@ -316,7 +316,8 @@ where
                 core::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, N::USIZE)
             };
 
-            self.i2c.write_read(mag::ADDRESS, &[reg.addr()], buffer)?;
+            self.i2c
+                .write_read(mag::DEFAULT_DEVICE_ADDRESS, &[reg.addr()], buffer)?;
         }
 
         // SAFETY: TODO: Ensure we do not have any uninitialized elements.
@@ -331,7 +332,7 @@ where
     /// This function does not validate any inputs.
     pub unsafe fn write_mag_register(
         &mut self,
-        reg: mag::MagnetometerRegister,
+        reg: mag::RegisterAddress,
         byte: u8,
     ) -> Result<(), E> {
         self.write_mag_register_unchecked(reg, byte)
@@ -339,10 +340,11 @@ where
 
     fn write_mag_register_unchecked(
         &mut self,
-        reg: mag::MagnetometerRegister,
+        reg: mag::RegisterAddress,
         byte: u8,
     ) -> Result<(), E> {
-        self.i2c.write(mag::ADDRESS, &[reg.addr(), byte])
+        self.i2c
+            .write(mag::DEFAULT_DEVICE_ADDRESS, &[reg.addr(), byte])
     }
 
     /// Modifies a magnetometer register.
@@ -351,7 +353,7 @@ where
     /// This function does not validate any inputs.
     pub unsafe fn modify_mag_register<F>(
         &mut self,
-        reg: mag::MagnetometerRegister,
+        reg: mag::RegisterAddress,
         f: F,
     ) -> Result<(), E>
     where
@@ -360,11 +362,7 @@ where
         self.modify_mag_register_unchecked(reg, f)
     }
 
-    fn modify_mag_register_unchecked<F>(
-        &mut self,
-        reg: mag::MagnetometerRegister,
-        f: F,
-    ) -> Result<(), E>
+    fn modify_mag_register_unchecked<F>(&mut self, reg: mag::RegisterAddress, f: F) -> Result<(), E>
     where
         F: FnOnce(u8) -> u8,
     {
@@ -384,259 +382,4 @@ pub struct I16x3 {
     pub y: i16,
     /// Z component
     pub z: i16,
-}
-
-/// Accelerometer Output Data Rate
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum AccelOdr {
-    /// Power-down mode (`0b0000`)
-    Disabled = 0b0000,
-    /// 1 Hz (`0b0001`)
-    Hz1 = 0b0001,
-    /// 10 Hz (`0b0010`)
-    Hz10 = 0b0010,
-    /// 25 Hz (`0b0011`)
-    Hz25 = 0b0011,
-    /// 50 Hz (`0b0100`)
-    Hz50 = 0b0100,
-    /// 100 Hz (`0b0101`)
-    Hz100 = 0b0101,
-    /// 200 Hz (`0b0110`)
-    Hz200 = 0b0110,
-    /// 400 Hz (`0b0111`)
-    Hz400 = 0b0111,
-    /// 1.620 kHz when in Low-Power mode (`0b1000`)
-    LpHz1620 = 0b1000,
-    /// 5.376 kHz when in normal mode, 1.344 kHz when in normal mode (`0b1001`)
-    LpHz1620NormalHz5376 = 0b1001,
-}
-
-impl AccelOdr {
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b0000 => AccelOdr::Disabled,
-            0b0001 => AccelOdr::Hz1,
-            0b0010 => AccelOdr::Hz10,
-            0b0011 => AccelOdr::Hz25,
-            0b0100 => AccelOdr::Hz50,
-            0b0101 => AccelOdr::Hz100,
-            0b0110 => AccelOdr::Hz200,
-            0b0111 => AccelOdr::Hz400,
-            0b1000 => AccelOdr::LpHz1620,
-            0b1001 => AccelOdr::LpHz1620NormalHz5376,
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// High-Pass Filter Mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum HighpassFilterMode {
-    /// Normal mode (`0b00`)
-    ///
-    /// Reset reading `HP_RESET_FILTER`.
-    NormalWithReset = 0b00,
-    /// Reference signal for filtering (`0b01`)
-    ReferenceSignal = 0b01,
-    /// Normal mode (`0b10`)
-    Normal = 0b10,
-    /// Autoreset on interrupt event (`0b11`)
-    AutoresetOnInterrupt = 0b11,
-}
-
-impl HighpassFilterMode {
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b00 => HighpassFilterMode::NormalWithReset,
-            0b01 => HighpassFilterMode::ReferenceSignal,
-            0b10 => HighpassFilterMode::Normal,
-            0b11 => HighpassFilterMode::AutoresetOnInterrupt,
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// Magnetometer Output Data Rate
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum MagOdr {
-    /// 0.75 Hz (`0b000`)
-    Hz0_75 = 0b000,
-    /// 1.5 Hz(`0b001`)
-    Hz1_5 = 0b001,
-    /// 3 Hz(`0b010`)
-    Hz3 = 0b010,
-    /// 7.5 Hz(`0b011`)
-    Hz7_5 = 0b011,
-    /// 15 Hz(`0b100`)
-    Hz15 = 0b100,
-    /// 30 Hz(`0b101`)
-    Hz30 = 0b101,
-    /// 75 Hz(`0b110`)
-    Hz75 = 0b110,
-    /// 220 Hz(`0b111`)
-    Hz220 = 0b111,
-}
-
-impl MagOdr {
-    #[allow(unused)]
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b000 => MagOdr::Hz0_75,
-            0b001 => MagOdr::Hz1_5,
-            0b010 => MagOdr::Hz3,
-            0b011 => MagOdr::Hz7_5,
-            0b100 => MagOdr::Hz15,
-            0b101 => MagOdr::Hz30,
-            0b110 => MagOdr::Hz75,
-            0b111 => MagOdr::Hz220,
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// Acceleration sensitivity (full scale selection).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum Sensitivity {
-    /// Range: [-2g, +2g]. Sensitivity ~ 1 g / (1 << 14) LSB (`0b00`)
-    G1 = 0b00,
-    /// Range: [-4g, +4g]. Sensitivity ~ 2 g / (1 << 14) LSB (`0b01`)
-    G2 = 0b01,
-    /// Range: [-8g, +8g]. Sensitivity ~ 4 g / (1 << 14) LSB (`0b10`)
-    G4 = 0b10,
-    /// Range: [-16g, +16g]. Sensitivity ~ 12 g / (1 << 14) LSB (`0b11`)
-    G12 = 0b11,
-}
-
-impl Sensitivity {
-    fn value(&self) -> u8 {
-        *self as u8
-    }
-
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b00 => Sensitivity::G1,
-            0b01 => Sensitivity::G2,
-            0b10 => Sensitivity::G4,
-            0b11 => Sensitivity::G12,
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// FIFO mode configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum FifoMode {
-    /// Bypass mode (`0b00`)
-    Bypass = 0b00,
-    /// FIFO mode (`0b01`)
-    FIFO = 0b01,
-    /// Stream mode (`0b10`)
-    Stream = 0b10,
-    /// Trigger mode (`0b11`)
-    Trigger = 0b11,
-}
-
-impl FifoMode {
-    #[allow(unused)]
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b00 => FifoMode::Bypass,
-            0b01 => FifoMode::FIFO,
-            0b10 => FifoMode::Stream,
-            0b11 => FifoMode::Trigger,
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// Magnetometer gain configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum MagGain {
-    /// Sensor input field range ±1.3 Gauss.
-    ///
-    /// Gain X, Y and Z: 1100 LSB/Gauss
-    /// Gain Z: 980 LSB/Gauss
-    Gauss1_3 = 0b001,
-    /// Sensor input field range ±1.9 Gauss.
-    ///
-    /// Gain X, Y and Z: 855 LSB/Gauss
-    /// Gain Z: 760 LSB/Gauss
-    Gauss1_9 = 0b010,
-    /// Sensor input field range ±2.5 Gauss.
-    ///
-    /// Gain X, Y and Z: 670 LSB/Gauss
-    /// Gain Z: 600 LSB/Gauss
-    Gauss2_5 = 0b011,
-    /// Sensor input field range ±4.0 Gauss.
-    ///
-    /// Gain X, Y and Z: 450 LSB/Gauss
-    /// Gain Z: 400 LSB/Gauss
-    Gauss4_0 = 0b100,
-    /// Sensor input field range ±4.7 Gauss.
-    ///
-    /// Gain X, Y and Z: 400 LSB/Gauss
-    /// Gain Z: 355 LSB/Gauss
-    Gauss4_7 = 0b101,
-    /// Sensor input field range ±5.6 Gauss.
-    ///
-    /// Gain X, Y and Z: 330 LSB/Gauss
-    /// Gain Z: 295 LSB/Gauss
-    Gauss5_6 = 0b110,
-    /// Sensor input field range ±8.1 Gauss.
-    ///
-    /// Gain X, Y and Z: 230 LSB/Gauss
-    /// Gain Z: 205 LSB/Gauss
-    Gauss8_1 = 0b111,
-}
-
-impl MagGain {
-    #[allow(unused)]
-    const fn into_bits(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_bits(value: u8) -> Self {
-        match value {
-            0b001 => MagGain::Gauss1_3,
-            0b010 => MagGain::Gauss1_9,
-            0b011 => MagGain::Gauss2_5,
-            0b100 => MagGain::Gauss4_0,
-            0b101 => MagGain::Gauss4_7,
-            0b110 => MagGain::Gauss5_6,
-            0b111 => MagGain::Gauss8_1,
-            _ => unreachable!(),
-        }
-    }
 }
