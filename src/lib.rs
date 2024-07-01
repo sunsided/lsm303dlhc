@@ -98,7 +98,7 @@ where
     pub fn identify(&mut self) -> Result<bool, E> {
         let ira: IdentificationARegisterM = self.read_register()?;
         let irb: IdentificationBRegisterM = self.read_register()?;
-        let irc: IdentificationBRegisterM = self.read_register()?;
+        let irc: IdentificationCRegisterM = self.read_register()?;
 
         Ok(ira.value() == 0b01001000 && irb.value() == 0b00110100 && irc.value() == 0b00110011)
     }

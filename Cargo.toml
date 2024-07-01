@@ -1,6 +1,6 @@
 [package]
 name = "lsm303dlhc-ng"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Markus Mayer <widemeadows@gmail.com>", "Jorge Aparicio <jorge@japaric.io>"]
 categories = ["embedded", "hardware-support", "no-std"]
 description = "A platform agnostic driver to interface with the LSM303DLHC (accelerometer + compass)"
