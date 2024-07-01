@@ -2,6 +2,9 @@
 
 > A platform-agnostic driver to interface with the (now discontinued) LSM303DLHC (accelerometer + compass)
 
+Uses [`lsm303dlhc-registers`](https://crates.io/crates/lsm303dlhc-registers) for typed register access
+with [`hardware-registers`](https://crates.io/crates/hardware-registers) traits.
+
 ## What works
 
 - Reading the accelerometer
