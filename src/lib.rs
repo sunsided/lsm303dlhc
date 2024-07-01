@@ -23,6 +23,8 @@ extern crate cast;
 #[cfg(feature = "defmt")]
 extern crate defmt;
 extern crate embedded_hal as hal;
+#[cfg(feature = "fixed")]
+extern crate fixed;
 extern crate generic_array;
 extern crate lsm303dlhc_registers;
 
@@ -108,8 +110,8 @@ where
         Ok(ira.value() == 0b01001000 && irb.value() == 0b00110100 && irc.value() == 0b00110011)
     }
 
-    /// Accelerometer measurements
-    pub fn accel(&mut self) -> Result<I16x3, E> {
+    /// Raw accelerometer measurements.
+    pub fn accel_raw(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
             self.read_accel_registers(accel::RegisterAddress::OUT_X_L_A)?;
 
@@ -126,8 +128,8 @@ where
         self.modify_register(|reg: ControlRegister1A| reg.with_output_data_rate(odr))
     }
 
-    /// Magnetometer measurements
-    pub fn mag(&mut self) -> Result<I16x3, E> {
+    /// Raw magnetometer measurements.
+    pub fn mag_raw(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
             self.read_mag_registers(mag::RegisterAddress::OUT_X_H_M)?;
 
@@ -145,7 +147,7 @@ where
         self.modify_register(|reg: CraRegisterM| reg.with_data_output_rate(odr))
     }
 
-    /// Temperature sensor measurement
+    /// Raw temperature sensor measurement.
     ///
     /// - Resolution: 12-bit
     /// - Range: [-40, +85]
@@ -153,11 +155,26 @@ where
     ///
     /// The temperature reading is relative to an unspecified reference temperature,
     /// most likely 25 °C.
-    pub fn temp(&mut self) -> Result<i16, E> {
+    pub fn temp_raw(&mut self) -> Result<i16, E> {
         let temp_out_l = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_L_M)?;
         let temp_out_h = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_H_M)?;
 
         Ok(((u16(temp_out_l) + (u16(temp_out_h) << 8)) as i16) >> 4)
+    }
+
+    /// Temperature sensor measurement in fixed-point format.
+    ///
+    /// - Resolution: 12-bit
+    /// - Range: [-40, +85]
+    /// - Output change vs. temperature: 8 LSB/°C
+    ///
+    /// The temperature reading is relative to an unspecified reference temperature,
+    /// most likely 25 °C.
+    #[cfg(feature = "fixed")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "fixed")))]
+    pub fn temp_fixed(&mut self) -> Result<fixed::types::I8F8, E> {
+        let raw = self.temp_raw()?;
+        Ok(fixed::types::I8F8::from_num(raw) / 8)
     }
 
     /// Changes the `sensitivity` of the accelerometer
