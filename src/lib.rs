@@ -1,14 +1,14 @@
-//! A platform-agnostic driver to interface with the LSM303DLHC (accelerometer + compass)
+//! # STMicroelectronics LSM303DLHC I²C driver
 //!
-//! This driver was built using [`embedded-hal`] traits.
+//! > A platform-agnostic driver to interface with the LSM303DLHC (accelerometer + compass)
 //!
-//! [`embedded-hal`]: https://docs.rs/embedded-hal/~0.2
+//! Do note that the sensor is discontinued and that documentation is scarce. Owners of an STM32F3 Discovery
+//! board may still find this crate useful, among others.
 //!
-//! # Examples
+//! This driver was built using [`embedded-hal`] and [`hardware-registers`] traits.
 //!
-//! You should find at least one example in the [f3] crate.
-//!
-//! [f3]: https://docs.rs/f3/~0.6
+//! [`embedded-hal`]: https://crates.io/crates/embedded-hal
+//! [`hardware-registers`]: https://crates.io/crates/hardware-registers
 
 #![deny(missing_docs)]
 #![deny(warnings)]
