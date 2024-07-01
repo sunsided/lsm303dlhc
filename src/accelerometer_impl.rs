@@ -4,7 +4,7 @@ use accelerometer::vector::F32x3;
 use accelerometer::{Accelerometer, Error, RawAccelerometer};
 use core::fmt::Debug;
 use hal::blocking::i2c::{Write, WriteRead};
-use registers::accel;
+use lsm303dlhc_registers::accel;
 use {I16x3, LSM303DLHC};
 
 impl<I2C, E> RawAccelerometer<accelerometer::vector::I16x3> for LSM303DLHC<I2C>
@@ -68,7 +68,7 @@ where
     }
 
     fn sample_rate(&mut self) -> Result<f32, Error<Self::Error>> {
-        let register = self.read_accel_register(accel::AccelerometerRegister::CTRL_REG1_A)?;
+        let register = self.read_accel_register(accel::RegisterAddress::CTRL_REG1_A)?;
         let odr = ((register & 0b1111_0000) >> 4) & 0b0000_1111;
         let lpen = (register & 0b0000_1000) >> 3;
         match odr {
