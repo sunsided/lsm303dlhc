@@ -1,10 +1,10 @@
 //! Provides [`RefCell`] wrappers for I2C types.
 
+use crate::LSM303DLHC;
 use core::cell::RefCell;
 use core::convert::TryFrom;
 use core::ops::{Deref, DerefMut};
 use hal::blocking::i2c::{SevenBitAddress, Write, WriteRead};
-use LSM303DLHC;
 
 /// An I2C instance wrapped in a [`RefCell`].
 pub struct RefCellI2C<I2C, E>(RefCell<I2C>)

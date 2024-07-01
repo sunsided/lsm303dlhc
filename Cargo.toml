@@ -1,6 +1,6 @@
 [package]
 name = "lsm303dlhc-ng"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Markus Mayer <widemeadows@gmail.com>", "Jorge Aparicio <jorge@japaric.io>"]
 categories = ["embedded", "hardware-support", "no-std"]
 description = "A platform agnostic driver to interface with the LSM303DLHC (accelerometer + compass)"
@@ -8,6 +8,8 @@ keywords = ["embedded-hal-driver", "accelerometer", "compass", "MEMS", "IMU"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/sunsided/lsm303dlhc"
 repository = "https://github.com/sunsided/lsm303dlhc"
+edition = "2021"
+rust-version = "1.64"
 
 [features]
 default = ["accelerometer"]

@@ -16,15 +16,7 @@
 // Enables the `doc_cfg` feature when the `docsrs` configuration attribute is defined.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(feature = "accelerometer")]
-extern crate accelerometer;
-extern crate bitfield_struct;
-extern crate cast;
-#[cfg(feature = "defmt")]
-extern crate defmt;
 extern crate embedded_hal as hal;
-extern crate generic_array;
-extern crate lsm303dlhc_registers;
 
 use cast::u16;
 use generic_array::typenum::consts::*;
@@ -33,6 +25,9 @@ use hal::blocking::i2c::{Write, WriteRead};
 use lsm303dlhc_registers::accel::{self, *};
 use lsm303dlhc_registers::mag::{self, *};
 use lsm303dlhc_registers::{Register, WritableRegister};
+
+pub use lsm303dlhc_registers::accel::{AccelOdr, Sensitivity};
+pub use lsm303dlhc_registers::mag::MagOdr;
 
 #[cfg(feature = "accelerometer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "accelerometer")))]
@@ -109,7 +104,7 @@ where
     }
 
     /// Accelerometer measurements
-    pub fn accel(&mut self) -> Result<I16x3, E> {
+    pub fn accel_raw(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
             self.read_accel_registers(accel::RegisterAddress::OUT_X_L_A)?;
 
@@ -127,7 +122,7 @@ where
     }
 
     /// Magnetometer measurements
-    pub fn mag(&mut self) -> Result<I16x3, E> {
+    pub fn mag_raw(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
             self.read_mag_registers(mag::RegisterAddress::OUT_X_H_M)?;
 
@@ -153,7 +148,7 @@ where
     ///
     /// The temperature reading is relative to an unspecified reference temperature,
     /// most likely 25 °C.
-    pub fn temp(&mut self) -> Result<i16, E> {
+    pub fn temp_raw(&mut self) -> Result<i16, E> {
         let temp_out_l = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_L_M)?;
         let temp_out_h = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_H_M)?;
 
