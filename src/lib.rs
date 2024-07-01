@@ -85,7 +85,7 @@ where
 
         // enable the temperature sensor
         sensor.write_register(
-            CraRegisterM::new()
+            ConfigurationARegisterM::new()
                 .with_temp_en(true)
                 .with_data_output_rate(MagOdr::Hz75),
         )?;
@@ -96,9 +96,9 @@ where
     /// Attempt to identify the sensor using control registers `IRA_REG_M`, `IRB_REG_M`
     /// and `IRC_REG_M`.
     pub fn identify(&mut self) -> Result<bool, E> {
-        let ira: IRARegisterM = self.read_register()?;
-        let irb: IRBRegisterM = self.read_register()?;
-        let irc: IRCRegisterM = self.read_register()?;
+        let ira: IdentificationARegisterM = self.read_register()?;
+        let irb: IdentificationBRegisterM = self.read_register()?;
+        let irc: IdentificationBRegisterM = self.read_register()?;
 
         Ok(ira.value() == 0b01001000 && irb.value() == 0b00110100 && irc.value() == 0b00110011)
     }
@@ -137,7 +137,7 @@ where
 
     /// Sets the magnetometer output data rate
     pub fn mag_odr(&mut self, odr: MagOdr) -> Result<(), E> {
-        self.modify_register(|reg: CraRegisterM| reg.with_data_output_rate(odr))
+        self.modify_register(|reg: ConfigurationARegisterM| reg.with_data_output_rate(odr))
     }
 
     /// Temperature sensor measurement
