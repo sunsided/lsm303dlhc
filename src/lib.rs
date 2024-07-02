@@ -132,6 +132,18 @@ where
         self.modify_register(|reg: ControlRegister1A| reg.with_output_data_rate(odr))
     }
 
+    /// Configures data ready interrupts of the accelerometer.
+    ///
+    /// Note that this does not affect INT2, FIFO, click, or AND/OR interrupts. Also note that
+    /// the magnetometer data ready (`DRDY`) is always enabled.
+    ///
+    /// ## Example use
+    /// On an STM32F3 Discovery, set the `PE4` pin to a pull-up input with an interrupt
+    /// on a rising edge. The `EXTI4` interrupt handler can then be used to process the event.
+    pub fn accel_drdy(&mut self, enable: bool) -> Result<(), E> {
+        self.modify_register(|reg: ControlRegister3A| reg.with_i1drdy1(enable))
+    }
+
     /// Magnetometer measurements
     pub fn mag_raw(&mut self) -> Result<I16x3, E> {
         let buffer: GenericArray<u8, U6> =
