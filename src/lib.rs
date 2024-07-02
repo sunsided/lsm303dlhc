@@ -55,10 +55,7 @@ where
     pub fn new(i2c: I2C) -> Result<Self, E> {
         let mut sensor = Self { i2c };
 
-        // TODO reset all the registers / the device
-
-        // configure the accelerometer to operate at 400 Hz
-        #[allow(clippy::unusual_byte_groupings)]
+        // Configure the accelerometer to operate at 400 Hz.
         sensor.write_register(
             ControlRegister1A::new()
                 .with_output_data_rate(AccelOdr::Hz400)
@@ -75,19 +72,33 @@ where
         sensor.write_register(ControlRegister4A::new())?;
         sensor.write_register(ControlRegister5A::new())?;
         sensor.write_register(ControlRegister6A::new())?;
+        sensor.write_register(ReferenceRegisterA::new())?;
+        sensor.write_register(FifoControlRegisterA::new())?;
+        sensor.write_register(Int1ConfigurationRegisterA::new())?;
+        sensor.write_register(Int1ThresholdRegisterA::new())?;
+        sensor.write_register(Int1DurationRegisterA::new())?;
+        sensor.write_register(Int2ConfigurationRegisterA::new())?;
+        sensor.write_register(Int2ThresholdRegisterA::new())?;
+        sensor.write_register(Int2DurationRegisterA::new())?;
+        sensor.write_register(ClickConfigurationRegisterA::new())?;
+        sensor.write_register(ClickThresholdRegisterA::new())?;
+        sensor.write_register(ClickTimeLimitRegisterA::new())?;
+        sensor.write_register(ClickTimeLatencyRegisterA::new())?;
 
-        // configure the magnetometer to operate in continuous mode
-        sensor.write_register(
-            ModeRegisterM::new()
-                .with_sleep_mode(false)
-                .with_single_conversion(false),
-        )?;
-
-        // enable the temperature sensor
+        // Enable the temperature sensor and set a reasonable refresh rate.
         sensor.write_register(
             ConfigurationARegisterM::new()
                 .with_temp_en(true)
                 .with_data_output_rate(MagOdr::Hz75),
+        )?;
+
+        sensor.write_register(ConfigurationBRegisterM::new())?;
+
+        // Configure the magnetometer to operate in continuous mode.
+        sensor.write_register(
+            ModeRegisterM::new()
+                .with_sleep_mode(false)
+                .with_single_conversion(false),
         )?;
 
         Ok(sensor)
