@@ -1,0 +1,150 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  EMBEDDED_TARGETS: thumbv7em-none-eabihf riscv32imc-unknown-none-elf
+  MSRV: '1.85'
+
+tasks:
+  default:
+    cmds:
+      - task --list --sort=none
+    silent: true
+
+  build:
+    desc: Build the crate for the host
+    preconditions: &cargo
+      - sh: command -v cargo
+        msg: "cargo not found — install Rust from https://rustup.rs/"
+    cmds:
+      - cargo build --all-targets --all-features
+
+  build:embedded:
+    desc: Build the no_std crate for the embedded targets used in CI
+    preconditions: *cargo
+    cmds:
+      - for: { var: EMBEDDED_TARGETS, split: ' ' }
+        cmd: |
+          rustup target list --installed | grep -qx {{.ITEM}} || rustup target add {{.ITEM}}
+          cargo build --all-features --target {{.ITEM}}
+
+  test:
+    desc: Run all tests with all features (pass extra args after --)
+    preconditions: *cargo
+    cmds:
+      - cargo test --all-features {{.CLI_ARGS}}
+
+  test:matrix:
+    desc: Run all tests with default, all and no default features, as CI does
+    preconditions: *cargo
+    cmds:
+      - cargo test
+      - cargo test --all-features
+      - cargo test --no-default-features
+
+  test:msrv:
+    desc: Run all tests with the minimum supported Rust version, as CI does
+    preconditions: *cargo
+    cmds:
+      - rustup toolchain list | grep -q '^{{.MSRV}}' || rustup toolchain install {{.MSRV}} --profile minimal
+      - cargo +{{.MSRV}} test --all-features
+
+  coverage:
+    desc: Measure test coverage and open the HTML report
+    preconditions:
+      - sh: command -v cargo-llvm-cov
+        msg: "cargo-llvm-cov not found — cargo install cargo-llvm-cov (needs: rustup component add llvm-tools)"
+    cmds:
+      - cargo llvm-cov --all-features --open
+
+  fmt:
+    desc: Format all sources
+    aliases: [format]
+    preconditions: *cargo
+    cmds:
+      - cargo fmt
+
+  fmt:check:
+    desc: Check formatting without modifying files
+    preconditions: *cargo
+    cmds:
+      - cargo fmt --check
+
+  lint:
+    desc: Run clippy with warnings as errors
+    preconditions: *cargo
+    cmds:
+      - cargo clippy --all-targets --all-features -- -D warnings
+
+  lint:fix:
+    desc: Apply clippy fixes, then format
+    aliases: [fix]
+    preconditions: *cargo
+    cmds:
+      - cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged
+      - task: fmt
+
+  spell:
+    desc: Check spelling
+    preconditions:
+      - sh: command -v codespell
+        msg: "codespell not found — pipx install codespell"
+    cmds:
+      - codespell
+
+  docs:
+    desc: Build the documentation (warnings as errors)
+    preconditions: *cargo
+    env:
+      RUSTDOCFLAGS: -D warnings
+    cmds:
+      - cargo doc --all-features --no-deps
+
+  docs:open:
+    desc: Build the documentation and open it in the browser
+    preconditions: *cargo
+    cmds:
+      - cargo doc --all-features --no-deps --open
+
+  check:
+    desc: Run all static checks
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: spell
+      - task: docs
+
+  ci:
+    desc: Run the full CI sequence locally
+    cmds:
+      - task: check
+      - task: test:matrix
+      - task: test:msrv
+      - task: build:embedded
+
+  release:dry-run:
+    desc: Show what a release would do (LEVEL=patch|minor|major or an exact version)
+    requires:
+      vars: [LEVEL]
+    preconditions: &cargo-release
+      - sh: command -v cargo-release
+        msg: "cargo-release not found — cargo install cargo-release"
+    cmds:
+      - cargo release {{.LEVEL}}
+
+  release:
+    desc: Bump, commit, tag and push vX.Y.Z; CI then publishes to crates.io and creates the GitHub Release
+    requires:
+      vars: [LEVEL]
+    preconditions: *cargo-release
+    prompt: "This pushes a release tag, which publishes the crate to crates.io. Continue?"
+    cmds:
+      - cargo release {{.LEVEL}} --execute
+
+  clean:
+    desc: Remove build artifacts
+    preconditions: *cargo
+    status:
+      - test ! -d target
+    cmds:
+      - cargo clean
