@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `Error<E>`, which wraps I²C errors and reports registers read with a reserved bit pattern
   (`Error::ReservedBitPattern`).
 - `LSM303DLHC::release` returns the I²C bus.
+- Physical units: `accel_g` (g), `mag_gauss` (gauss) and `temp_relative_celsius` (°C relative to an
+  uncalibrated reference), plus the `F32x3` type. The driver tracks the accelerometer full scale,
+  the magnetometer gain and the accelerometer byte order (`BLE`) from its own register writes.
+- `set_mag_gain`; `MagGain` is re-exported.
+- `async` feature: `asynch::LSM303DLHC` mirrors the blocking driver on `embedded-hal-async` 1.0.
 
 ### Changed
 
@@ -21,6 +26,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   `modify_register` decode with `TryFromBits`.
 - [**breaking**] Edition 2024; the minimum supported Rust version is now 1.85.
 - `set_accel_sensitivity` now uses the typed `CTRL_REG4_A` register.
+- `accel_raw` honors the `BLE` (big-endian) bit when it was set through the driver.
 
 ### Removed
 
