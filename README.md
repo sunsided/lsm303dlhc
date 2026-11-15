@@ -17,6 +17,8 @@ board may still find this crate useful, among others.
 
 - Reading the accelerometer in I²C blocking mode ([`embedded-hal`] 1.0)
 - Reading the compass and temperature sensor I²C blocking mode
+- Readings in physical units: acceleration in g, magnetic field in gauss, relative temperature in °C
+- Async API on [`embedded-hal-async`] (`async` feature, `asynch::LSM303DLHC`)
 - Sharing the bus via [`embedded-hal-bus`] (the driver takes the bus by value; `release()` returns it)
 - Direct access to registers via [`lsm303dlhc-registers`] structs and [`hardware-registers`] traits
 
@@ -77,3 +79,5 @@ We abide by the [Contributor Covenant][cc] and ask that you do as well.
 [`embedded-hal`]: https://crates.io/crates/embedded-hal
 
 [`embedded-hal-bus`]: https://crates.io/crates/embedded-hal-bus
+
+[`embedded-hal-async`]: https://crates.io/crates/embedded-hal-async

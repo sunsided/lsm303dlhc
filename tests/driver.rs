@@ -2,7 +2,7 @@
 
 use core::cell::RefCell;
 use fake_bus::{FakeI2c, I2cTarget};
-use lsm303dlhc_ng::{AccelOdr, Error, I16x3, LSM303DLHC, ReservedBitPattern, Sensitivity};
+use lsm303dlhc_ng::{AccelOdr, Error, I16x3, LSM303DLHC, MagGain, ReservedBitPattern, Sensitivity};
 use lsm303dlhc_registers::accel::ControlRegister1A;
 
 /// One of the two I²C targets: the accelerometer or the magnetometer.
@@ -238,4 +238,109 @@ fn i16x3_debug() {
         z: 30,
     };
     assert_eq!(format!("{value:?}"), "(10, 20, 30)");
+}
+
+fn assert_close(actual: lsm303dlhc_ng::F32x3, expected: [f32; 3]) {
+    for (a, e) in [actual.x, actual.y, actual.z].into_iter().zip(expected) {
+        assert!((a - e).abs() < 1e-4, "{actual:?} != {expected:?}");
+    }
+}
+
+#[test]
+fn accel_g_follows_full_scale() {
+    let fixture = Fixture::new();
+    let mut sensor = LSM303DLHC::new(fixture.bus()).unwrap();
+    // 1000 LSB (12-bit, left-justified), -1000 LSB, 0.
+    let lsb = |v: i16| (v << 4).to_le_bytes();
+    let [x0, x1] = lsb(1000);
+    let [y0, y1] = lsb(-1000);
+    fixture.accel.borrow_mut().registers[0x28..0x2E].copy_from_slice(&[x0, x1, y0, y1, 0, 0]);
+
+    assert_close(sensor.accel_g().unwrap(), [1.0, -1.0, 0.0]);
+
+    sensor.set_accel_sensitivity(Sensitivity::G12).unwrap();
+    assert_close(sensor.accel_g().unwrap(), [12.0, -12.0, 0.0]);
+}
+
+#[test]
+fn accel_byte_order_follows_ble() {
+    let fixture = Fixture::new();
+    let mut sensor = LSM303DLHC::new(fixture.bus()).unwrap();
+    fixture.accel.borrow_mut().registers[0x28..0x2E]
+        .copy_from_slice(&[0x12, 0x34, 0x00, 0x01, 0xFF, 0xFE]);
+
+    sensor
+        .write_register(lsm303dlhc_registers::accel::ControlRegister4A::new().with_big_endian(true))
+        .unwrap();
+
+    assert_eq!(
+        sensor.accel_raw().unwrap(),
+        I16x3 {
+            x: 0x1234,
+            y: 0x0001,
+            z: -2
+        }
+    );
+}
+
+#[test]
+fn mag_gauss_follows_gain() {
+    let fixture = Fixture::new();
+    let mut sensor = LSM303DLHC::new(fixture.bus()).unwrap();
+    // X = 1100, Z = 980, Y = -1100: 1 gauss at ±1.3 gauss.
+    let [x0, x1] = 1100_i16.to_be_bytes();
+    let [z0, z1] = 980_i16.to_be_bytes();
+    let [y0, y1] = (-1100_i16).to_be_bytes();
+    fixture.mag.borrow_mut().registers[0x03..0x09].copy_from_slice(&[x0, x1, z0, z1, y0, y1]);
+
+    assert_close(sensor.mag_gauss().unwrap(), [1.0, -1.0, 1.0]);
+
+    sensor.set_mag_gain(MagGain::Gauss8_1).unwrap();
+    assert_eq!(fixture.mag.borrow().registers[0x01], 0b1110_0000);
+    assert_close(
+        sensor.mag_gauss().unwrap(),
+        [1100.0 / 230.0, -1100.0 / 230.0, 980.0 / 205.0],
+    );
+}
+
+#[test]
+fn temp_relative_celsius() {
+    let fixture = Fixture::new();
+    let mut sensor = LSM303DLHC::new(fixture.bus()).unwrap();
+    {
+        // -16 LSB: -2 °C.
+        let mut mag = fixture.mag.borrow_mut();
+        mag.registers[0x31] = 0xFF;
+        mag.registers[0x32] = 0x00;
+    }
+
+    assert_eq!(sensor.temp_relative_celsius().unwrap(), -2.0);
+}
+
+#[cfg(feature = "async")]
+mod asynch {
+    use super::*;
+    use embassy_futures::block_on;
+    use lsm303dlhc_ng::asynch::LSM303DLHC;
+
+    #[test]
+    fn mirrors_the_blocking_driver() {
+        let fixture = Fixture::new();
+        let mut sensor = block_on(LSM303DLHC::new(fixture.bus())).unwrap();
+        assert_eq!(fixture.accel.borrow().registers[0x20], 0x77);
+        assert!(block_on(sensor.identify()).unwrap());
+
+        fixture.accel.borrow_mut().registers[0x28..0x2E]
+            .copy_from_slice(&(1000_i16 << 4).to_le_bytes().repeat(3));
+        block_on(sensor.set_accel_sensitivity(Sensitivity::G2)).unwrap();
+        assert_close(block_on(sensor.accel_g()).unwrap(), [2.0, 2.0, 2.0]);
+
+        fixture.accel.borrow_mut().registers[0x20] = 0xA7;
+        assert_eq!(
+            block_on(sensor.accel_odr(AccelOdr::Hz1)),
+            Err(Error::ReservedBitPattern(ReservedBitPattern(0xA7)))
+        );
+
+        let _bus = sensor.release();
+    }
 }
