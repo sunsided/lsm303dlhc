@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Internal
+
+- Removed `#![deny(warnings)]`, so new compiler warnings cannot break docs.rs builds; CI
+  still denies warnings.
+
 ## [0.4.0] - 2026-11-15
 
 [0.4.0]: https://github.com/sunsided/lsm303dlhc/releases/tag/v0.4.0
