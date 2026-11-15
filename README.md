@@ -15,8 +15,9 @@ board may still find this crate useful, among others.
 
 ## What works
 
-- Reading the accelerometer in I²C blocking mode
+- Reading the accelerometer in I²C blocking mode ([`embedded-hal`] 1.0)
 - Reading the compass and temperature sensor I²C blocking mode
+- Sharing the bus via [`embedded-hal-bus`] (the driver takes the bus by value; `release()` returns it)
 - Direct access to registers via [`lsm303dlhc-registers`] structs and [`hardware-registers`] traits
 
 ## License
@@ -53,7 +54,7 @@ We abide by the [Contributor Covenant][cc] and ask that you do as well.
 
 [build-link]: https://github.com/sunsided/lsm303dlhc/actions
 
-[msrv-image]: https://img.shields.io/badge/rustc-1.64+-blue.svg
+[msrv-image]: https://img.shields.io/badge/rustc-1.85+-blue.svg
 
 [license-eupl-image]: https://img.shields.io/badge/license-EUPL_1.2-blue.svg
 
@@ -61,14 +62,18 @@ We abide by the [Contributor Covenant][cc] and ask that you do as well.
 
 [license-mit-image]: https://img.shields.io/badge/license-MIT-blue.svg
 
-[license-apache-link]: https://github.com/sunsided/lsm303dlhc/blob/develop/LICENSE-APACHE
+[license-apache-link]: https://github.com/sunsided/lsm303dlhc/blob/main/LICENSE-APACHE
 
-[license-mit-link]: https://github.com/sunsided/lsm303dlhc/blob/develop/LICENSE-MIT
+[license-mit-link]: https://github.com/sunsided/lsm303dlhc/blob/main/LICENSE-MIT
 
-[license-eupl-link]: https://github.com/sunsided/lsm303dlhc/blob/develop/LICENSE-EUPL
+[license-eupl-link]: https://github.com/sunsided/lsm303dlhc/blob/main/LICENSE-EUPL
 
 [cc]: https://contributor-covenant.org
 
 [`lsm303dlhc-registers`]: https://crates.io/crates/lsm303dlhc-registers
 
 [`hardware-registers`]: https://crates.io/crates/hardware-registers
+
+[`embedded-hal`]: https://crates.io/crates/embedded-hal
+
+[`embedded-hal-bus`]: https://crates.io/crates/embedded-hal-bus

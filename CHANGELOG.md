@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `Error<E>`, which wraps I²C errors and reports registers read with a reserved bit pattern
+  (`Error::ReservedBitPattern`).
+- `LSM303DLHC::release` returns the I²C bus.
+
+### Changed
+
+- [**breaking**] Ported to `embedded-hal` 1.0 (`embedded_hal::i2c::I2c`). All methods return
+  `Error<I2C::Error>`.
+- [**breaking**] Updated to `lsm303dlhc-registers` 0.2 and `defmt` 1.0. `read_register` and
+  `modify_register` decode with `TryFromBits`.
+- [**breaking**] Edition 2024; the minimum supported Rust version is now 1.85.
+- `set_accel_sensitivity` now uses the typed `CTRL_REG4_A` register.
+
+### Removed
+
+- [**breaking**] The `accelerometer` feature and its `Accelerometer`/`RawAccelerometer` impls.
+- [**breaking**] `wrapper::refcell::RefCellI2C`; share the bus with `embedded-hal-bus` instead.
+- [**breaking**] The deprecated `Lsm303dlhc` alias.
+- [**breaking**] The `unsafe` raw register functions (`write_accel_register`, `modify_accel_register`,
+  `write_mag_register`, `modify_mag_register`). Use `write_register` / `modify_register`.
+  The crate now forbids `unsafe` code.
+
 ## [0.3.4] - 2024-07-02
 
 [0.3.4]: https://github.com/sunsided/lsm303dlhc/releases/tag/v0.3.4
