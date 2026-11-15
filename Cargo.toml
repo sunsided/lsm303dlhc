@@ -24,8 +24,8 @@ mod_module_files = "deny"
 defmt = { version = "1.0.1", optional = true }
 embedded-hal = "1.0.0"
 embedded-hal-async = { version = "1.0.0", optional = true }
-# shortcut: path-only until lsm303dlhc-registers 0.2.0 is on crates.io; `cargo publish` refuses it until then.
-lsm303dlhc-registers = { path = "../lsm303dlhc-registers" }
+# shortcut: git-only until lsm303dlhc-registers 0.2.0 is on crates.io; `cargo publish` refuses it until then.
+lsm303dlhc-registers = { git = "https://github.com/sunsided/lsm303dlhc-registers" }
 
 [dev-dependencies]
 embassy-futures = "0.1.2"
