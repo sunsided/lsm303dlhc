@@ -5,38 +5,71 @@
 //! Do note that the sensor is discontinued and that documentation is scarce. Owners of an STM32F3 Discovery
 //! board may still find this crate useful, among others.
 //!
-//! This driver was built using [`embedded-hal`] and [`hardware-registers`] traits.
+//! This driver was built using [`embedded-hal`] 1.0 and [`hardware-registers`] traits.
+//!
+//! ## Shared use of the I²C bus
+//!
+//! The driver takes the bus by value. To share it with other devices, pass a bus from
+//! [`embedded-hal-bus`], or `&mut` a bus, and get it back with [`LSM303DLHC::release`].
 //!
 //! [`embedded-hal`]: https://crates.io/crates/embedded-hal
+//! [`embedded-hal-bus`]: https://crates.io/crates/embedded-hal-bus
 //! [`hardware-registers`]: https://crates.io/crates/hardware-registers
 
 #![deny(missing_docs)]
 #![deny(warnings)]
 #![no_std]
+#![forbid(unsafe_code)]
 // Enables the `doc_cfg` feature when the `docsrs` configuration attribute is defined.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-extern crate embedded_hal as hal;
-
-use cast::u16;
-use generic_array::typenum::consts::*;
-use generic_array::{ArrayLength, GenericArray};
-use hal::blocking::i2c::{Write, WriteRead};
+use core::convert::Infallible;
+use embedded_hal::i2c::I2c;
 use lsm303dlhc_registers::accel::{self, *};
 use lsm303dlhc_registers::mag::{self, *};
+use lsm303dlhc_registers::prelude::TryFromBits;
 use lsm303dlhc_registers::{Register, WritableRegister};
 
+pub use lsm303dlhc_registers::ReservedBitPattern;
 pub use lsm303dlhc_registers::accel::{AccelOdr, Sensitivity};
 pub use lsm303dlhc_registers::mag::MagOdr;
 
-#[cfg(feature = "accelerometer")]
-#[cfg_attr(docsrs, doc(cfg(feature = "accelerometer")))]
-mod accelerometer_impl;
-pub mod wrapper;
+/// The accelerometer register address bit that enables address auto-increment
+/// (datasheet section 5.1.2).
+const ACCEL_AUTO_INCREMENT: u8 = 1 << 7;
 
-/// LSM303DLHC driver.
-#[deprecated(since = "0.3.0", note = "Please use `LSM303DLHC` instead")]
-pub type Lsm303dlhc<I2C> = LSM303DLHC<I2C>;
+/// A driver error.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error<E> {
+    /// The I²C transfer failed.
+    I2c(E),
+    /// A register read from the device holds a reserved bit pattern.
+    ReservedBitPattern(ReservedBitPattern),
+}
+
+impl<E> From<Infallible> for Error<E> {
+    fn from(value: Infallible) -> Self {
+        match value {}
+    }
+}
+
+impl<E> From<ReservedBitPattern> for Error<E> {
+    fn from(value: ReservedBitPattern) -> Self {
+        Self::ReservedBitPattern(value)
+    }
+}
+
+impl<E: core::fmt::Debug> core::fmt::Display for Error<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::I2c(e) => write!(f, "I²C error: {e:?}"),
+            Self::ReservedBitPattern(e) => core::fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl<E: core::fmt::Debug> core::error::Error for Error<E> {}
 
 /// LSM303DLHC driver.
 #[allow(non_snake_case)]
@@ -44,15 +77,16 @@ pub struct LSM303DLHC<I2C> {
     i2c: I2C,
 }
 
-impl<I2C, E> LSM303DLHC<I2C>
+impl<I2C> LSM303DLHC<I2C>
 where
-    I2C: WriteRead<Error = E> + Write<Error = E>,
+    I2C: I2c,
 {
-    /// Creates a new driver from a I2C peripheral
+    /// Creates a new driver from an I²C bus and configures the sensor.
     ///
-    /// ## Shared use of the I2C bus
-    /// To use the I2C bus with multiple devices, consider using [`RefCellI2C::into`](wrapper::refcell::RefCellI2C).
-    pub fn new(i2c: I2C) -> Result<Self, E> {
+    /// The accelerometer runs at 400 Hz on all axes, the magnetometer in continuous mode
+    /// at 75 Hz, and the temperature sensor is enabled. All other registers are reset to
+    /// their defaults.
+    pub fn new(i2c: I2C) -> Result<Self, Error<I2C::Error>> {
         let mut sensor = Self { i2c };
 
         // Configure the accelerometer to operate at 400 Hz.
@@ -104,9 +138,14 @@ where
         Ok(sensor)
     }
 
+    /// Releases the I²C bus.
+    pub fn release(self) -> I2C {
+        self.i2c
+    }
+
     /// Attempt to identify the sensor using control registers `IRA_REG_M`, `IRB_REG_M`
     /// and `IRC_REG_M`.
-    pub fn identify(&mut self) -> Result<bool, E> {
+    pub fn identify(&mut self) -> Result<bool, Error<I2C::Error>> {
         let ira: IdentificationARegisterM = self.read_register()?;
         let irb: IdentificationBRegisterM = self.read_register()?;
         let irc: IdentificationCRegisterM = self.read_register()?;
@@ -115,20 +154,19 @@ where
     }
 
     /// Accelerometer measurements
-    pub fn accel_raw(&mut self) -> Result<I16x3, E> {
-        let buffer: GenericArray<u8, U6> =
-            self.read_accel_registers(accel::RegisterAddress::OUT_X_L_A)?;
+    pub fn accel_raw(&mut self) -> Result<I16x3, Error<I2C::Error>> {
+        let buffer: [u8; 6] = self.read_accel_registers(accel::RegisterAddress::OUT_X_L_A)?;
 
+        // Registers come in X, Y, Z order of low, then high.
         Ok(I16x3 {
-            // Registers come in X, Y, Z order of low, then high.
-            x: (u16(buffer[0]) + (u16(buffer[1]) << 8)) as i16,
-            y: (u16(buffer[2]) + (u16(buffer[3]) << 8)) as i16,
-            z: (u16(buffer[4]) + (u16(buffer[5]) << 8)) as i16,
+            x: i16::from_le_bytes([buffer[0], buffer[1]]),
+            y: i16::from_le_bytes([buffer[2], buffer[3]]),
+            z: i16::from_le_bytes([buffer[4], buffer[5]]),
         })
     }
 
     /// Sets the accelerometer output data rate
-    pub fn accel_odr(&mut self, odr: AccelOdr) -> Result<(), E> {
+    pub fn accel_odr(&mut self, odr: AccelOdr) -> Result<(), Error<I2C::Error>> {
         self.modify_register(|reg: ControlRegister1A| reg.with_output_data_rate(odr))
     }
 
@@ -140,26 +178,25 @@ where
     /// ## Example use
     /// On an STM32F3 Discovery, set the `PE4` pin to a pull-up input with an interrupt
     /// on a rising edge. The `EXTI4` interrupt handler can then be used to process the event.
-    pub fn accel_drdy(&mut self, enable: bool) -> Result<(), E> {
+    pub fn accel_drdy(&mut self, enable: bool) -> Result<(), Error<I2C::Error>> {
         self.modify_register(|reg: ControlRegister3A| reg.with_i1drdy1(enable))
     }
 
     /// Magnetometer measurements
-    pub fn mag_raw(&mut self) -> Result<I16x3, E> {
-        let buffer: GenericArray<u8, U6> =
-            self.read_mag_registers(mag::RegisterAddress::OUT_X_H_M)?;
+    pub fn mag_raw(&mut self) -> Result<I16x3, Error<I2C::Error>> {
+        let buffer: [u8; 6] = self.read_mag_registers(mag::RegisterAddress::OUT_X_H_M)?;
 
+        // Note that the register is different from the accelerometer.
+        // We read an X, Z, Y sequence of high, then low each.
         Ok(I16x3 {
-            // Note that the register is different from the accelerometer.
-            // We read an X, Z, Y sequence of high, then low each.
-            x: (u16(buffer[1]) + (u16(buffer[0]) << 8)) as i16,
-            y: (u16(buffer[5]) + (u16(buffer[4]) << 8)) as i16,
-            z: (u16(buffer[3]) + (u16(buffer[2]) << 8)) as i16,
+            x: i16::from_be_bytes([buffer[0], buffer[1]]),
+            y: i16::from_be_bytes([buffer[4], buffer[5]]),
+            z: i16::from_be_bytes([buffer[2], buffer[3]]),
         })
     }
 
     /// Sets the magnetometer output data rate
-    pub fn mag_odr(&mut self, odr: MagOdr) -> Result<(), E> {
+    pub fn mag_odr(&mut self, odr: MagOdr) -> Result<(), Error<I2C::Error>> {
         self.modify_register(|reg: ConfigurationARegisterM| reg.with_data_output_rate(odr))
     }
 
@@ -171,148 +208,101 @@ where
     ///
     /// The temperature reading is relative to an unspecified reference temperature,
     /// most likely 25 °C.
-    pub fn temp_raw(&mut self) -> Result<i16, E> {
-        let temp_out_l = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_L_M)?;
+    pub fn temp_raw(&mut self) -> Result<i16, Error<I2C::Error>> {
+        // Two reads: auto-increment past IRC_REG_M wraps to CRA_REG_M (datasheet section 5.1.3).
         let temp_out_h = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_H_M)?;
+        let temp_out_l = self.read_mag_register(mag::RegisterAddress::TEMP_OUT_L_M)?;
 
-        Ok(((u16(temp_out_l) + (u16(temp_out_h) << 8)) as i16) >> 4)
+        Ok(i16::from_be_bytes([temp_out_h, temp_out_l]) >> 4)
     }
 
     /// Changes the `sensitivity` of the accelerometer
-    pub fn set_accel_sensitivity(&mut self, sensitivity: Sensitivity) -> Result<(), E> {
-        self.modify_accel_register_unchecked(accel::RegisterAddress::CTRL_REG4_A, |r| {
-            r & !(0b11 << 4) | (sensitivity.into_bits() << 4)
-        })
+    pub fn set_accel_sensitivity(
+        &mut self,
+        sensitivity: Sensitivity,
+    ) -> Result<(), Error<I2C::Error>> {
+        self.modify_register(|reg: ControlRegister4A| reg.with_full_scale(sensitivity))
     }
 
     /// Reads a single register.
-    pub fn read_register<R>(&mut self) -> Result<R, E>
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::ReservedBitPattern`] if the register holds a reserved value.
+    pub fn read_register<R>(&mut self) -> Result<R, Error<I2C::Error>>
     where
         R: Register,
+        Error<I2C::Error>: From<<R as TryFromBits<u8>>::Error>,
     {
         let mut buffer = [0_u8];
-        self.i2c.write_read(
-            *R::DEFAULT_DEVICE_ADDRESS,
-            &[*R::REGISTER_ADDRESS],
-            &mut buffer,
-        )?;
-        Ok(R::from_bits(buffer[0]))
+        self.i2c
+            .write_read(
+                *R::DEFAULT_DEVICE_ADDRESS,
+                &[*R::REGISTER_ADDRESS],
+                &mut buffer,
+            )
+            .map_err(Error::I2c)?;
+
+        Ok(R::try_from_bits(buffer[0])?)
     }
 
     /// Writes a single register.
-    pub fn write_register<B, R>(&mut self, register: B) -> Result<(), E>
+    pub fn write_register<B, R>(&mut self, register: B) -> Result<(), Error<I2C::Error>>
     where
         B: core::borrow::Borrow<R>,
         R: WritableRegister,
     {
         let byte = register.borrow().to_bits();
         self.i2c
-            .write(*R::DEFAULT_DEVICE_ADDRESS, &[*R::REGISTER_ADDRESS, byte])?;
-        Ok(())
+            .write(*R::DEFAULT_DEVICE_ADDRESS, &[*R::REGISTER_ADDRESS, byte])
+            .map_err(Error::I2c)
     }
 
     /// Modifies a single register.
-    pub fn modify_register<F, R>(&mut self, f: F) -> Result<(), E>
+    pub fn modify_register<F, R>(&mut self, f: F) -> Result<(), Error<I2C::Error>>
     where
         F: FnOnce(R) -> R,
         R: WritableRegister,
+        Error<I2C::Error>: From<<R as TryFromBits<u8>>::Error>,
     {
         let register: R = self.read_register()?;
-        let register = f(register);
-        self.write_register(register)
+        self.write_register(f(register))
     }
 
     /// Reads an accelerometer register.
-    pub fn read_accel_register(&mut self, reg: accel::RegisterAddress) -> Result<u8, E> {
-        self.read_accel_registers::<U1>(reg).map(|b| b[0])
-    }
-
-    /// Reads multiple registers from the magnetometer.
-    ///
-    /// ## Address pointer updates.
-    /// This function internally sets the MSB of the provided address to `1`, allowing
-    /// for consecutive reads. This is described in section 5.1.2 of the reference manual.
-    fn read_accel_registers<N>(
+    pub fn read_accel_register(
         &mut self,
         reg: accel::RegisterAddress,
-    ) -> Result<GenericArray<u8, N>, E>
-    where
-        N: ArrayLength,
-    {
-        let mut buffer = GenericArray::<u8, N>::uninit();
+    ) -> Result<u8, Error<I2C::Error>> {
+        self.read_accel_registers::<1>(reg).map(|b| b[0])
+    }
 
-        {
-            let buffer: &mut [u8] = unsafe {
-                core::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, N::USIZE)
-            };
-
-            const MULTI: u8 = 1 << 7;
-            self.i2c
-                .write_read(accel::DEFAULT_DEVICE_ADDRESS, &[reg.addr() | MULTI], buffer)?;
-        }
-
-        // SAFETY: The write_read function has filled the entire buffer.
-        let buffer = unsafe { GenericArray::assume_init(buffer) };
+    /// Reads consecutive accelerometer registers, starting at `reg`.
+    fn read_accel_registers<const N: usize>(
+        &mut self,
+        reg: accel::RegisterAddress,
+    ) -> Result<[u8; N], Error<I2C::Error>> {
+        let mut buffer = [0; N];
+        self.i2c
+            .write_read(
+                accel::DEFAULT_DEVICE_ADDRESS,
+                &[reg.addr() | ACCEL_AUTO_INCREMENT],
+                &mut buffer,
+            )
+            .map_err(Error::I2c)?;
 
         Ok(buffer)
     }
 
-    /// Writes an accelerometer register.
-    ///
-    /// ## Safety
-    /// This function does not validate any inputs.
-    pub unsafe fn write_accel_register(
-        &mut self,
-        reg: accel::RegisterAddress,
-        byte: u8,
-    ) -> Result<(), E> {
-        self.write_accel_register_unchecked(reg, byte)
-    }
-
-    fn write_accel_register_unchecked(
-        &mut self,
-        reg: accel::RegisterAddress,
-        byte: u8,
-    ) -> Result<(), E> {
-        self.i2c
-            .write(accel::DEFAULT_DEVICE_ADDRESS, &[reg.addr(), byte])
-    }
-
-    /// Modifies an accelerometer register.
-    ///
-    /// ## Safety
-    /// This function does not validate any inputs.
-    pub unsafe fn modify_accel_register<F>(
-        &mut self,
-        reg: accel::RegisterAddress,
-        f: F,
-    ) -> Result<(), E>
-    where
-        F: FnOnce(u8) -> u8,
-    {
-        self.modify_accel_register_unchecked(reg, f)
-    }
-
-    fn modify_accel_register_unchecked<F>(
-        &mut self,
-        reg: accel::RegisterAddress,
-        f: F,
-    ) -> Result<(), E>
-    where
-        F: FnOnce(u8) -> u8,
-    {
-        let r = self.read_accel_register(reg)?;
-        self.write_accel_register_unchecked(reg, f(r))?;
-        Ok(())
-    }
-
     /// Reads a magnetometer register.
-    pub fn read_mag_register(&mut self, reg: mag::RegisterAddress) -> Result<u8, E> {
-        let buffer: GenericArray<u8, U1> = self.read_mag_registers(reg)?;
-        Ok(buffer[0])
+    pub fn read_mag_register(
+        &mut self,
+        reg: mag::RegisterAddress,
+    ) -> Result<u8, Error<I2C::Error>> {
+        self.read_mag_registers::<1>(reg).map(|b| b[0])
     }
 
-    /// Reads multiple registers from the magnetometer.
+    /// Reads consecutive magnetometer registers, starting at `reg`.
     ///
     /// ## Address pointer updates
     /// The magnetometer has specific address auto-incrementation rules specified in section 5.1.3
@@ -323,70 +313,16 @@ where
     /// * Any other address gets incremented.
     ///
     /// Unlike the accelerometer, it does not require an MSB high bit for auto-increments.
-    fn read_mag_registers<N>(&mut self, reg: mag::RegisterAddress) -> Result<GenericArray<u8, N>, E>
-    where
-        N: ArrayLength,
-    {
-        let mut buffer = GenericArray::<u8, N>::uninit();
-
-        {
-            let buffer: &mut [u8] = unsafe {
-                core::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, N::USIZE)
-            };
-
-            self.i2c
-                .write_read(mag::DEFAULT_DEVICE_ADDRESS, &[reg.addr()], buffer)?;
-        }
-
-        // SAFETY: TODO: Ensure we do not have any uninitialized elements.
-        let buffer = unsafe { GenericArray::assume_init(buffer) };
+    fn read_mag_registers<const N: usize>(
+        &mut self,
+        reg: mag::RegisterAddress,
+    ) -> Result<[u8; N], Error<I2C::Error>> {
+        let mut buffer = [0; N];
+        self.i2c
+            .write_read(mag::DEFAULT_DEVICE_ADDRESS, &[reg.addr()], &mut buffer)
+            .map_err(Error::I2c)?;
 
         Ok(buffer)
-    }
-
-    /// Writes a magnetometer register.
-    ///
-    /// ## Safety
-    /// This function does not validate any inputs.
-    pub unsafe fn write_mag_register(
-        &mut self,
-        reg: mag::RegisterAddress,
-        byte: u8,
-    ) -> Result<(), E> {
-        self.write_mag_register_unchecked(reg, byte)
-    }
-
-    fn write_mag_register_unchecked(
-        &mut self,
-        reg: mag::RegisterAddress,
-        byte: u8,
-    ) -> Result<(), E> {
-        self.i2c
-            .write(mag::DEFAULT_DEVICE_ADDRESS, &[reg.addr(), byte])
-    }
-
-    /// Modifies a magnetometer register.
-    ///
-    /// ## Safety
-    /// This function does not validate any inputs.
-    pub unsafe fn modify_mag_register<F>(
-        &mut self,
-        reg: mag::RegisterAddress,
-        f: F,
-    ) -> Result<(), E>
-    where
-        F: FnOnce(u8) -> u8,
-    {
-        self.modify_mag_register_unchecked(reg, f)
-    }
-
-    fn modify_mag_register_unchecked<F>(&mut self, reg: mag::RegisterAddress, f: F) -> Result<(), E>
-    where
-        F: FnOnce(u8) -> u8,
-    {
-        let r = self.read_mag_register(reg)?;
-        self.write_mag_register_unchecked(reg, f(r))?;
-        Ok(())
     }
 }
 
@@ -419,20 +355,5 @@ impl core::fmt::Debug for I16x3 {
         f.write_str(", ")?;
         core::fmt::Debug::fmt(&self.z, f)?;
         f.write_char(')')
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn i16x3_debug() {
-        let value = I16x3 {
-            x: 10,
-            y: 20,
-            z: 30,
-        };
-        test_format::assert_debug_fmt!(value, "(10, 20, 30)");
     }
 }

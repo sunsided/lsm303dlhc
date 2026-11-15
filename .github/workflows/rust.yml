@@ -6,44 +6,60 @@ on:
   push:
     branches:
       - main
-      - master
-    paths:
-      - 'Cargo.toml'
-      - 'src/**'
-      - '.codespellrc'
-      - '.github/workflows/rust.yml'
   pull_request:
     branches:
       - main
-      - master
-    paths:
-      - 'Cargo.toml'
-      - 'src/**'
-      - '.codespellrc'
-      - '.github/workflows/rust.yml'
+
+# Read-only by default; no job needs more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  workflows:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false
+
   codespell:
     name: Check for spelling mistakes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Codespell
-        uses: codespell-project/actions-codespell@v2
+        uses: codespell-project/actions-codespell@e3258cca84ce02b0bb36a3d41f2c18f719a0cc1a # v2.4.3
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check format
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --all-features
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   docs:
     name: Build documentation
@@ -52,9 +68,13 @@ jobs:
       - lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build documentation
-        run: cargo doc --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --all-features --no-deps
 
   build-linux:
     name: Build on Linux
@@ -63,14 +83,55 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: [ [ ], [ "--all-features" ], [ "--no-default-features" ] ]
+        features: [ "", "--all-features", "--no-default-features" ]
+    env:
+      FEATURES: ${{ matrix.features }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Clippy
-        run: cargo clippy ${{ join(matrix.features, ' ') }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
-        run: cargo build --verbose ${{ join(matrix.features, ' ') }}
+        run: |
+          # shellcheck disable=SC2086 # FEATURES is empty or a single flag.
+          cargo build --verbose $FEATURES
       - name: Run doctests
-        run: cargo test --doc --verbose ${{ join(matrix.features, ' ') }}
+        run: |
+          # shellcheck disable=SC2086 # FEATURES is empty or a single flag.
+          cargo test --doc --verbose $FEATURES
       - name: Run regular tests
-        run: cargo test --tests --verbose ${{ join(matrix.features, ' ') }}
+        run: |
+          # shellcheck disable=SC2086 # FEATURES is empty or a single flag.
+          cargo test --tests --verbose $FEATURES
+
+  build-embedded:
+    name: Build for embedded targets
+    needs:
+      - lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [ thumbv7em-none-eabihf, riscv32imc-unknown-none-elf ]
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install target
+        run: rustup target add "$TARGET"
+      - name: Build
+        run: cargo build --all-features --target "$TARGET"
+
+  msrv:
+    name: Build with the minimum supported Rust version
+    needs:
+      - lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.85
+        run: rustup toolchain install 1.85 --profile minimal
+      - name: Test
+        run: cargo +1.85 test --all-features
