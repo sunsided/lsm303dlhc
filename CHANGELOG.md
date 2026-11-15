@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-15
+
+[0.4.0]: https://github.com/sunsided/lsm303dlhc/releases/tag/v0.4.0
+
 ### Added
 
 - `Error<E>`, which wraps I²C errors and reports registers read with a reserved bit pattern
